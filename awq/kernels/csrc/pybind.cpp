@@ -8,6 +8,8 @@
 #include "quantization_new/gemv/gemv_cuda.h"
 #include "position_embedding/pos_encoding.h"
 
+// 定义PyBind11模块
+// 绑定多个C++函数到Python，以便在Python中调用这些高性能的CUDA实现
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("layernorm_forward_cuda", &layernorm_forward_cuda, "FasterTransformer layernorm kernel");

@@ -19,5 +19,5 @@
 #pragma once
 
 #ifdef ENABLE_BF16
-#include <cuda_bf16.h>
+#include <cuda_bf16.h>              // 定义`ENABLE_BF16`时，包含`cuda_bf16.h`头文件
 #endif

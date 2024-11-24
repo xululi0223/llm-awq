@@ -5,7 +5,7 @@ import os
 from packaging.version import parse, Version
 
 from setuptools import setup, find_packages
-import subprocess
+import subprocess                                       # 用于在Python中执行外部命令
 
 import torch
 from torch.utils.cpp_extension import (
@@ -17,28 +17,40 @@ from torch.utils.cpp_extension import (
 
 
 # ninja build does not work unless include_dirs are abs path
-this_dir = os.path.dirname(os.path.abspath(__file__))
+this_dir = os.path.dirname(os.path.abspath(__file__))               # 获取当前文件所在目录的绝对路径
 
 
 def get_cuda_bare_metal_version(cuda_dir):
+    """
+    获取安装在指定CUDA目录中的NVCC版本信息
+
+    Args:
+        cuda_dir: CUDA安装目录
+    """
     raw_output = subprocess.check_output(
-        [cuda_dir + "/bin/nvcc", "-V"], universal_newlines=True
+        [cuda_dir + "/bin/nvcc", "-V"], universal_newlines=True     # 执行nvcc -V命令，获取CUDA版本信息
     )
-    output = raw_output.split()
-    release_idx = output.index("release") + 1
-    bare_metal_version = parse(output[release_idx].split(",")[0])
+    output = raw_output.split()                                     # 将输出结果按空格分割成列表，便于解析
+    release_idx = output.index("release") + 1                       # 获取CUDA版本号的索引
+    bare_metal_version = parse(output[release_idx].split(",")[0])   # 解析CUDA版本号
 
     return raw_output, bare_metal_version
 
 
 def check_cuda_torch_binary_vs_bare_metal(cuda_dir):
-    raw_output, bare_metal_version = get_cuda_bare_metal_version(cuda_dir)
-    torch_binary_version = parse(torch.version.cuda)
+    """
+    确保用于编译CUDA扩展的CUDA版本与PyTorch二进制文件使用的CUDA版本一致
+
+    Args:
+        cuda_dir: CUDA安装目录
+    """
+    raw_output, bare_metal_version = get_cuda_bare_metal_version(cuda_dir)  # 获取CUDA版本信息
+    torch_binary_version = parse(torch.version.cuda)                # 获取PyTorch二进制文件使用的CUDA版本
 
     print("\nCompiling cuda extensions with")
     print(raw_output + "from " + cuda_dir + "/bin\n")
 
-    if bare_metal_version != torch_binary_version:
+    if bare_metal_version != torch_binary_version:                  # 检查CUDA版本是否一致
         raise RuntimeError(
             "Cuda extensions are being compiled with a version of Cuda that does "
             "not match the version used to compile Pytorch binaries.  "
@@ -50,6 +62,12 @@ def check_cuda_torch_binary_vs_bare_metal(cuda_dir):
 
 
 def raise_if_cuda_home_none(global_option: str) -> None:
+    """
+    检查CUDA安装目录是否存在（即NVCC是否可用）
+
+    Args:
+        global_option: 全局选项
+    """
     if CUDA_HOME is not None:
         return
     raise RuntimeError(
@@ -60,12 +78,19 @@ def raise_if_cuda_home_none(global_option: str) -> None:
 
 
 def append_nvcc_threads(nvcc_extra_args):
-    _, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)
+    """
+    根据CUDA版本，决定是否向NVCC编译器参数中添加线程数配置
+
+    Args:
+        nvcc_extra_args: NVCC编译器参数
+    """
+    _, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)  # 获取CUDA版本信息
     if bare_metal_version >= Version("11.2"):
-        return nvcc_extra_args + ["--threads", "4"]
+        return nvcc_extra_args + ["--threads", "4"]                 # CUDA 11.2及以上版本，设置线程数为4
     return nvcc_extra_args
 
 
+# 检查CUDA可用性并设置架构列表
 if not torch.cuda.is_available():
     # https://github.com/NVIDIA/apex/issues/486
     # Extension builds after https://github.com/pytorch/pytorch/pull/23408 attempt to query torch.cuda.get_device_capability(),
@@ -91,34 +116,38 @@ if not torch.cuda.is_available():
             os.environ["TORCH_CUDA_ARCH_LIST"] = "6.0;6.1;6.2;7.0;7.5"
 
 
+# 打印PyTorch版本信息
 print("\n\ntorch.__version__  = {}\n\n".format(torch.__version__))
 TORCH_MAJOR = int(torch.__version__.split(".")[0])
 TORCH_MINOR = int(torch.__version__.split(".")[1])
 
-cmdclass = {}
-ext_modules = []
+cmdclass = {}                                   # 用于存储自定义的构建命令
+ext_modules = []                                # 用于存储要构建的扩展模块
 
 # Check, if ATen/CUDAGeneratorImpl.h is found, otherwise use ATen/cuda/CUDAGeneratorImpl.h
 # See https://github.com/pytorch/pytorch/pull/70650
-generator_flag = []
-torch_dir = torch.__path__[0]
-if os.path.exists(os.path.join(torch_dir, "include", "ATen", "CUDAGeneratorImpl.h")):
-    generator_flag = ["-DOLD_GENERATOR_PATH"]
+generator_flag = []                             # 用于存储编译器宏定义
+torch_dir = torch.__path__[0]                   # 获取PyTorch安装目录
+if os.path.exists(os.path.join(torch_dir, "include", "ATen", "CUDAGeneratorImpl.h")):   # 检查ATen/CUDAGeneratorImpl.h是否存在
+    generator_flag = ["-DOLD_GENERATOR_PATH"]   # 如果存在，设置编译器宏定义，用于在编译期间区分生成器路径
 
-raise_if_cuda_home_none("--ft_attention")
+raise_if_cuda_home_none("--ft_attention")       # 检查CUDA安装目录是否存在
 # Check, if CUDA11 is installed for compute capability 8.0
-cc_flag = []
-_, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)
-if bare_metal_version < Version("11.0"):
+cc_flag = []                                    # 用于存储CUDA架构标志参数
+_, bare_metal_version = get_cuda_bare_metal_version(CUDA_HOME)  # 获取CUDA版本信息
+if bare_metal_version < Version("11.0"):        # 检查CUDA版本是否小于11.0
     raise RuntimeError("ft_attention is only supported on CUDA 11 and above")
+# 添加支持计算能力7.0和8.0的CUDA架构标志
 cc_flag.append("-gencode")
 cc_flag.append("arch=compute_70,code=sm_70")
 cc_flag.append("-gencode")
 cc_flag.append("arch=compute_80,code=sm_80")
+# 如果CUDA版本>=11.8，添加支持计算能力9.0的CUDA架构标志
 if bare_metal_version >= Version("11.8"):
     cc_flag.append("-gencode")
     cc_flag.append("arch=compute_90,code=sm_90")
 
+# 定义并添加CUDA扩展模块
 ext_modules.append(
     CUDAExtension(
         name="ft_attention",
@@ -146,10 +175,11 @@ ext_modules.append(
                 + cc_flag
             ),
         },
-        include_dirs=[this_dir],
+        include_dirs=[this_dir],                # 添加当前文件所在目录到包含目录
     )
 )
 
+# 配置并运行包的构建和安装
 setup(
     name="ft_attention",
     version="0.1",
